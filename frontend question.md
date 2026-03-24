@@ -1089,4 +1089,691 @@ A: `at(index)` allows negative indexing to access elements from the end: `arr.at
 
 ---
 
-This comprehensive guide covers all requested topics and adds extra questions frequently asked in interviews. Practice with code examples and consider building small projects to solidify these concepts.
+## JavaScript Advanced & Internals
+
+### Explain the JavaScript event loop in detail. Microtasks vs macrotasks.
+
+The **event loop** is the mechanism that enables JavaScript’s non‑blocking, asynchronous behavior despite being single‑threaded. It continuously checks the **call stack** and **task queues**, moving tasks to the stack when it’s empty.
+
+There are two main queues:
+- **Macrotask (Callback) queue**: Contains tasks like `setTimeout`, `setInterval`, `setImmediate`, I/O events, and UI rendering.
+- **Microtask queue**: Contains tasks like `Promise` callbacks (`.then`, `.catch`, `.finally`), `queueMicrotask`, and `MutationObserver`. Microtasks have higher priority.
+
+**Process:**
+1. Execute all synchronous code (call stack frames).
+2. When the stack is empty, the event loop first processes **all** microtasks in the microtask queue (in FIFO order). If new microtasks are added during this phase, they are also processed before moving to macrotasks.
+3. After microtasks are exhausted, one macrotask is taken from the macrotask queue and executed.
+4. The browser may perform rendering (if needed) between macrotask cycles.
+5. Repeat.
+
+```javascript
+console.log('1');
+setTimeout(() => console.log('2'), 0);
+Promise.resolve().then(() => console.log('3'));
+console.log('4');
+// Output: 1,4,3,2
+// Explanation: synchronous 1,4; microtask (promise) 3; macrotask 2.
+```
+
+### How do JavaScript engines optimize code? (JIT, hidden classes, inline caching)
+
+Modern engines (V8, SpiderMonkey) use **Just‑In‑Time (JIT)** compilation, combining interpretation and compilation.
+
+- **Interpretation**: Code starts as bytecode, executed by an interpreter (Ignition in V8). This allows fast startup.
+- **JIT compilation**: Hot functions (executed many times) are compiled to machine code by optimizing compilers (TurboFan in V8) for faster execution.
+- **Hidden classes**: Instead of dynamic dictionary lookups, objects with the same shape (property names and order) share a hidden class, enabling fast property access via fixed offsets.
+- **Inline caching**: When a property is accessed repeatedly, the engine caches the property location based on the hidden class, avoiding repeated lookup overhead.
+
+### How does garbage collection work in V8?
+
+V8 uses a **generational, mark‑and‑sweep** garbage collector.
+
+- **Heap**: Divided into **young generation** (newly allocated objects) and **old generation** (objects that survive multiple collections).
+- **Minor GC (Scavenger)**: Runs frequently on the young generation, copying surviving objects to a survivor space. Very fast.
+- **Major GC (Mark‑Sweep / Mark‑Compact)**: Runs less often on the old generation. It marks reachable objects, sweeps unreachable ones, and compacts to reduce fragmentation.
+- **Incremental marking**: Long pauses are avoided by interleaving marking with JavaScript execution.
+
+### What is the difference between `setTimeout` and `setInterval`?
+
+| | `setTimeout` | `setInterval` |
+|---|--------------|---------------|
+| **Execution** | Runs once after a delay | Runs repeatedly at a fixed interval |
+| **Drift** | No cumulative delay | Can drift if execution time exceeds interval |
+| **Cancellation** | `clearTimeout(id)` | `clearInterval(id)` |
+
+**Important**: Both schedule macrotasks. If the callback takes longer than the interval, `setInterval` may queue multiple calls back‑to‑back, causing congestion. A common pattern to avoid this is recursive `setTimeout`:
+
+```javascript
+function repeat() {
+  // do work
+  setTimeout(repeat, delay);
+}
+```
+
+### Implement a custom Promise (conceptually).
+
+A custom Promise implementation involves managing states (`pending`, `fulfilled`, `rejected`), handling `.then` callbacks (both onFulfilled and onRejected), and supporting chaining and async resolution.
+
+```javascript
+class MyPromise {
+  constructor(executor) {
+    this.state = 'pending';
+    this.value = undefined;
+    this.handlers = []; // stores { onFulfilled, onRejected }
+
+    const resolve = (value) => {
+      if (this.state !== 'pending') return;
+      this.state = 'fulfilled';
+      this.value = value;
+      this.handlers.forEach(h => this._runHandler(h));
+    };
+
+    const reject = (reason) => {
+      if (this.state !== 'pending') return;
+      this.state = 'rejected';
+      this.value = reason;
+      this.handlers.forEach(h => this._runHandler(h));
+    };
+
+    try {
+      executor(resolve, reject);
+    } catch (err) {
+      reject(err);
+    }
+  }
+
+  _runHandler(handler) {
+    if (this.state === 'pending') {
+      this.handlers.push(handler);
+      return;
+    }
+    const cb = this.state === 'fulfilled' ? handler.onFulfilled : handler.onRejected;
+    if (!cb) {
+      // propagate
+      const next = this.state === 'fulfilled' ? handler.resolve : handler.reject;
+      next(this.value);
+      return;
+    }
+    try {
+      const result = cb(this.value);
+      handler.resolve(result);
+    } catch (err) {
+      handler.reject(err);
+    }
+  }
+
+  then(onFulfilled, onRejected) {
+    return new MyPromise((resolve, reject) => {
+      this._runHandler({ onFulfilled, onRejected, resolve, reject });
+    });
+  }
+
+  catch(onRejected) {
+    return this.then(null, onRejected);
+  }
+
+  // static methods (all, race) would be added similarly
+}
+```
+
+### How does the browser rendering pipeline work? (HTML → CSS → Layout → Paint → Composite)
+
+The browser rendering pipeline typically involves these steps (per frame):
+
+1. **Parsing HTML** → DOM tree, CSS → CSSOM tree.
+2. **Style**: Combine DOM and CSSOM into a render tree (visible nodes with computed styles).
+3. **Layout (Reflow)**: Calculate geometry (position, size) for each node in the render tree.
+4. **Paint**: Fill in pixels – draw text, colors, images, borders, shadows (creates layers).
+5. **Composite**: Combine layers (GPU) and draw to screen.
+
+**Optimizations**:
+- Changing properties that affect layout (width, height, position) trigger **layout + paint + composite**.
+- Changing paint‑only properties (color, background) trigger **paint + composite**.
+- Changing transform/opacity (on a separate layer) triggers **composite only** (the fastest).
+
+### What causes memory leaks in frontend applications? How to prevent them?
+
+Common memory leaks:
+- **Global variables**: Accidentally creating globals (`function foo() { x = 10; }`) – use `'use strict'`.
+- **Forgotten timers**: `setInterval` / `setTimeout` not cleared.
+- **Event listeners** not removed when elements are removed.
+- **Closures** holding references to large objects.
+- **Detached DOM elements**: Removing elements but still referencing them in JavaScript.
+- **Out of scope references**: Variables captured in closures but no longer needed.
+
+**Prevention**:
+- Use `let`/`const` and strict mode.
+- Clean up timers and listeners in lifecycle hooks (e.g., `componentWillUnmount`, `useEffect` cleanup).
+- Avoid storing large data in global scope.
+- Use weak references (`WeakMap`, `WeakSet`) for caching or metadata.
+- Profile with Chrome DevTools (Memory tab) to identify leaks.
+
+### Explain AbortController and request cancellation.
+
+`AbortController` provides a standard way to cancel asynchronous operations (e.g., fetch, timers). It works via an `AbortSignal` attached to the operation.
+
+```javascript
+const controller = new AbortController();
+const signal = controller.signal;
+
+fetch('/api', { signal })
+  .then(response => response.json())
+  .catch(err => {
+    if (err.name === 'AbortError') console.log('Fetch aborted');
+  });
+
+// Cancel after 1 second
+setTimeout(() => controller.abort(), 1000);
+```
+
+**Use cases**: Cancelling fetch requests when a component unmounts, implementing debounced search, aborting expensive computations.
+
+### Cross‑tab communication methods: BroadcastChannel, storage events, postMessage.
+
+- **BroadcastChannel**: Simple, same‑origin communication. Create a channel and post messages; all tabs listening receive them.
+  ```javascript
+  const bc = new BroadcastChannel('my_channel');
+  bc.postMessage('Hello');
+  bc.onmessage = (e) => console.log(e.data);
+  ```
+- **localStorage / sessionStorage events**: When storage changes in one tab, a `storage` event fires in other tabs (except the one that made the change). Useful for cross‑tab sync.
+- **postMessage** (with `window.opener` or `window.parent`): For communication between a parent window and an iframe, or between windows opened via `window.open()`.
+- **SharedWorker**: A background script that can communicate with multiple tabs.
+
+### Event delegation at scale – benefits and pitfalls.
+
+**Event delegation** attaches a single event listener to a parent element instead of many children. The event bubbles up, and the target can be checked.
+
+**Benefits**:
+- Reduces memory usage (fewer listeners).
+- Works for dynamically added elements.
+- Simplifies code.
+
+**Pitfalls**:
+- Performance if the parent has many descendants; event target checks become O(n) if not optimized.
+- May catch events you don’t want if not filtered properly.
+- Not all events bubble (e.g., `focus`, `blur`, `load` can bubble with `useCapture`).
+- Need to be careful with `stopPropagation()` – it can break delegation.
+
+**Scalable approach**: Use a library or implement a throttled event handler; filter targets with `closest()` for specific selectors.
+
+### Why does JavaScript have closures? (data privacy, hooks, callbacks, memoization)
+
+Closures are a fundamental feature that allows functions to “remember” their lexical scope even when executed outside that scope.
+
+**Use cases**:
+- **Data privacy**: Encapsulate variables not exposed globally (e.g., module pattern, factory functions).
+- **React Hooks**: `useState` and `useEffect` rely on closures to maintain state across renders.
+- **Callbacks**: Preserve context in asynchronous operations.
+- **Memoization**: Cache results of expensive functions (e.g., `useMemo`, `_.memoize`).
+- **Function factories**: Create functions with pre‑configured arguments.
+
+### `var`, `let`, `const` – interviewers want hoisting + TDZ explanation.
+
+**Hoisting**: JavaScript moves declarations to the top of their scope during compilation.
+- `var` → declaration hoisted, initialized with `undefined`.
+- `let` / `const` → declaration hoisted, but not initialized. Access before initialization results in `ReferenceError` due to the **Temporal Dead Zone (TDZ)**.
+
+**TDZ**: The period from entering a block scope until the declaration is executed. Within TDZ, the variable exists but cannot be accessed.
+
+**Example**:
+```javascript
+console.log(a); // undefined (var)
+var a = 1;
+
+console.log(b); // ReferenceError (TDZ)
+let b = 2;
+```
+
+---
+
+## Asynchronous JavaScript
+
+### Synchronous vs asynchronous programming.
+
+- **Synchronous**: Code executes sequentially; each line waits for the previous to finish. Long operations block the thread.
+- **Asynchronous**: Operations (I/O, timers) are delegated, and the program continues without waiting. When the operation completes, a callback or promise is executed via the event loop.
+
+### Callback functions – what are they? Callback hell.
+
+A **callback** is a function passed as an argument to another function, to be executed later. Callback hell refers to deeply nested callbacks that become hard to read and maintain:
+
+```javascript
+getUser((user) => {
+  getOrders(user.id, (orders) => {
+    getOrderDetails(orders[0].id, (details) => {
+      // ...
+    });
+  });
+});
+```
+
+Solutions: Promises, `async/await`.
+
+### Promises – states (pending, fulfilled, rejected) and how they work.
+
+A Promise represents the eventual completion (or failure) of an asynchronous operation.
+
+- **pending**: Initial state, neither fulfilled nor rejected.
+- **fulfilled**: Operation completed successfully, value available via `.then`.
+- **rejected**: Operation failed, reason available via `.catch`.
+
+Promises are **immutable** once settled. They support chaining: `.then` returns a new promise, enabling sequential composition.
+
+### `async / await` – how they simplify promises.
+
+`async` functions always return a promise. `await` pauses the function execution until the promise settles, then resumes with the resolved value (or throws if rejected). It allows writing asynchronous code that looks synchronous.
+
+```javascript
+async function fetchData() {
+  try {
+    const response = await fetch('/api');
+    const data = await response.json();
+    console.log(data);
+  } catch (err) {
+    console.error(err);
+  }
+}
+```
+
+### Event loop: Why does a Promise run before setTimeout? (Microtasks vs macrotasks)
+
+Promises’ callbacks (`.then`, `.catch`) are **microtasks**, while `setTimeout` callbacks are **macrotasks**. After each macrotask (including the initial script execution), the event loop drains the entire microtask queue before taking the next macrotask. Therefore, a settled promise’s callback always runs before any scheduled `setTimeout`.
+
+### Implement `Promise.all`, `Promise.race`, `Promise.allSettled` from scratch.
+
+**Promise.all**:
+```javascript
+Promise.myAll = function(promises) {
+  return new Promise((resolve, reject) => {
+    if (!Array.isArray(promises)) reject(new TypeError('Not an array'));
+    const results = new Array(promises.length);
+    let completed = 0;
+    if (promises.length === 0) resolve(results);
+    promises.forEach((p, i) => {
+      Promise.resolve(p).then(
+        val => {
+          results[i] = val;
+          completed++;
+          if (completed === promises.length) resolve(results);
+        },
+        err => reject(err)
+      );
+    });
+  });
+};
+```
+
+**Promise.race**:
+```javascript
+Promise.myRace = function(promises) {
+  return new Promise((resolve, reject) => {
+    promises.forEach(p => {
+      Promise.resolve(p).then(resolve, reject);
+    });
+  });
+};
+```
+
+**Promise.allSettled**:
+```javascript
+Promise.myAllSettled = function(promises) {
+  return new Promise(resolve => {
+    const results = [];
+    let remaining = promises.length;
+    if (remaining === 0) resolve(results);
+    promises.forEach((p, i) => {
+      Promise.resolve(p).then(
+        value => results[i] = { status: 'fulfilled', value },
+        reason => results[i] = { status: 'rejected', reason }
+      ).finally(() => {
+        remaining--;
+        if (remaining === 0) resolve(results);
+      });
+    });
+  });
+};
+```
+
+### Difference between microtask queue and callback (macrotask) queue.
+
+- **Microtask queue**: High priority; processed after each macrotask until empty. Used for promise callbacks, `queueMicrotask`, `MutationObserver`.
+- **Macrotask queue**: Lower priority; one task processed per event loop iteration after microtasks are done. Used for `setTimeout`, `setInterval`, I/O, UI rendering.
+
+### How to handle multiple independent API calls efficiently? (`Promise.all`, `allSettled`)
+
+- Use `Promise.all` when you need all to succeed or fail fast (reject on first error).
+- Use `Promise.allSettled` when you want to know the outcome of each independent call, regardless of failures (e.g., analytics, fallback data).
+
+### What are the advantages of `Promise.allSettled` over `Promise.all`?
+
+`Promise.allSettled` never rejects; it always resolves with an array of objects describing each promise’s outcome. This is useful when you need to wait for multiple operations and handle errors individually, without failing the whole batch.
+
+---
+
+## JavaScript Coding & Polyfills
+
+### Implement `Promise.all` from scratch (already covered above).
+
+### Implement debounce and throttle functions.
+
+**Debounce**: Delays function execution until after a period of inactivity. Useful for search inputs, window resize.
+```javascript
+function debounce(fn, delay) {
+  let timer;
+  return function(...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+```
+
+**Throttle**: Ensures a function is called at most once per interval. Useful for scroll events, button clicks.
+```javascript
+function throttle(fn, limit) {
+  let inThrottle;
+  return function(...args) {
+    if (!inThrottle) {
+      fn.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => (inThrottle = false), limit);
+    }
+  };
+}
+```
+
+### Implement a deep clone function (deep copy).
+
+**Using `structuredClone` (modern)**:
+```javascript
+const clone = structuredClone(original);
+```
+
+**Manual implementation** (handles objects, arrays, dates, maps, sets, and cyclic references):
+```javascript
+function deepClone(obj, map = new WeakMap()) {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (map.has(obj)) return map.get(obj);
+  let clone;
+  if (obj instanceof Date) clone = new Date(obj);
+  else if (obj instanceof Map) {
+    clone = new Map();
+    map.set(obj, clone);
+    obj.forEach((val, key) => clone.set(deepClone(key, map), deepClone(val, map)));
+    return clone;
+  } else if (obj instanceof Set) {
+    clone = new Set();
+    map.set(obj, clone);
+    obj.forEach(val => clone.add(deepClone(val, map)));
+    return clone;
+  } else if (obj instanceof Array) {
+    clone = [];
+    map.set(obj, clone);
+    obj.forEach((item, i) => clone[i] = deepClone(item, map));
+  } else {
+    clone = {};
+    map.set(obj, clone);
+    for (let key in obj) {
+      if (obj.hasOwnProperty(key)) clone[key] = deepClone(obj[key], map);
+    }
+  }
+  return clone;
+}
+```
+
+### Write a polyfill for `call`, `apply`, and `bind`.
+
+**`call` polyfill** (already provided earlier, but here is a clean version):
+```javascript
+Function.prototype.myCall = function(context, ...args) {
+  context = context ?? globalThis;
+  const fnSymbol = Symbol();
+  context[fnSymbol] = this;
+  const result = context[fnSymbol](...args);
+  delete context[fnSymbol];
+  return result;
+};
+```
+
+**`apply` polyfill**:
+```javascript
+Function.prototype.myApply = function(context, argsArray) {
+  context = context ?? globalThis;
+  const fnSymbol = Symbol();
+  context[fnSymbol] = this;
+  const result = context[fnSymbol](...argsArray);
+  delete context[fnSymbol];
+  return result;
+};
+```
+
+**`bind` polyfill**:
+```javascript
+Function.prototype.myBind = function(context, ...boundArgs) {
+  const fn = this;
+  return function(...args) {
+    return fn.apply(context, boundArgs.concat(args));
+  };
+};
+```
+
+### Implement `map`, `reduce`, `filter` from scratch.
+
+**`map`**:
+```javascript
+Array.prototype.myMap = function(callback, thisArg) {
+  const result = [];
+  for (let i = 0; i < this.length; i++) {
+    if (i in this) { // skip empty slots (sparse arrays)
+      result.push(callback.call(thisArg, this[i], i, this));
+    }
+  }
+  return result;
+};
+```
+
+**`filter`**:
+```javascript
+Array.prototype.myFilter = function(callback, thisArg) {
+  const result = [];
+  for (let i = 0; i < this.length; i++) {
+    if (i in this && callback.call(thisArg, this[i], i, this)) {
+      result.push(this[i]);
+    }
+  }
+  return result;
+};
+```
+
+**`reduce`**:
+```javascript
+Array.prototype.myReduce = function(callback, initialValue) {
+  let accumulator = initialValue;
+  let startIndex = 0;
+  if (arguments.length < 2) {
+    if (this.length === 0) throw new TypeError('Reduce of empty array with no initial value');
+    accumulator = this[0];
+    startIndex = 1;
+  }
+  for (let i = startIndex; i < this.length; i++) {
+    if (i in this) {
+      accumulator = callback(accumulator, this[i], i, this);
+    }
+  }
+  return accumulator;
+};
+```
+
+### Flatten a nested array without using `Array.flat()`.
+
+**Input**: `[1,2,3,[4,5,6,[7,8,[10,11]]],9]`  
+**Output**: `[1,2,3,4,5,6,7,8,10,11,9]`
+
+**Solution** (recursive):
+```javascript
+function flattenArray(arr) {
+  let result = [];
+  for (let item of arr) {
+    if (Array.isArray(item)) {
+      result.push(...flattenArray(item));
+    } else {
+      result.push(item);
+    }
+  }
+  return result;
+}
+```
+
+**Iterative with stack**:
+```javascript
+function flattenArrayIterative(arr) {
+  const stack = [...arr];
+  const result = [];
+  while (stack.length) {
+    const next = stack.pop();
+    if (Array.isArray(next)) {
+      stack.push(...next);
+    } else {
+      result.push(next);
+    }
+  }
+  return result.reverse(); // because we popped from end
+}
+```
+
+### Find the first repeating character in a string (e.g., "success" → "c").
+
+```javascript
+function firstRepeating(str) {
+  const seen = new Set();
+  for (let char of str) {
+    if (seen.has(char)) return char;
+    seen.add(char);
+  }
+  return null;
+}
+```
+
+### Find the first non-repeating character in a string.
+
+```javascript
+function firstNonRepeating(str) {
+  const count = new Map();
+  for (let char of str) {
+    count.set(char, (count.get(char) || 0) + 1);
+  }
+  for (let char of str) {
+    if (count.get(char) === 1) return char;
+  }
+  return null;
+}
+```
+
+### Currying for infinite sum: `sum(10)(20)(30)() → 60`, `sum(10)(20)(30)(40)(50)(60)() → 210`.
+
+```javascript
+function sum(x) {
+  let total = x;
+  function inner(y) {
+    if (y === undefined) return total;
+    total += y;
+    return inner;
+  }
+  return inner;
+}
+// Usage: sum(10)(20)(30)() → 60
+```
+
+### Find sum of numbers without using a for loop (using reduce or recursion).
+
+**Using reduce**:
+```javascript
+const arr = [1,2,3,4];
+const sum = arr.reduce((acc, val) => acc + val, 0);
+```
+
+**Using recursion**:
+```javascript
+function sumRecursive(arr, index = 0) {
+  if (index === arr.length) return 0;
+  return arr[index] + sumRecursive(arr, index + 1);
+}
+```
+
+### Given an array of users, find all active user ids.
+
+**Array**: `users = [{ id: 1, active: true }, { id: 2, active: false }]`  
+Also with `null`, `{}`, etc.
+
+```javascript
+function getActiveIds(users) {
+  return users
+    .filter(user => user && typeof user === 'object' && user.active === true)
+    .map(user => user.id);
+}
+```
+
+### Solve a problem using only `map()` and `filter()` (no loops). Explain edge cases.
+
+**Example**: Given an array of numbers, get the squares of even numbers.  
+```javascript
+const numbers = [1,2,3,4,5];
+const result = numbers
+  .filter(n => n % 2 === 0)
+  .map(n => n * n);
+// result: [4,16]
+```
+**Edge cases**: Empty array → returns empty array. Sparse arrays: `filter` and `map` skip empty slots. Non‑numeric values should be handled by the predicate (e.g., `typeof n === 'number'`). Ensure `map` is called after `filter` to avoid unnecessary processing.
+
+### Implement a custom hook like `useDebounce` or `useFetch` (React).
+
+**`useDebounce`**:
+```javascript
+import { useState, useEffect } from 'react';
+
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+```
+
+**`useFetch`**:
+```javascript
+function useFetch(url, options = {}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    const signal = abortController.signal;
+
+    fetch(url, { ...options, signal })
+      .then(res => {
+        if (!res.ok) throw new Error('Network response was not ok');
+        return res.json();
+      })
+      .then(data => {
+        setData(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') {
+          setError(err);
+          setLoading(false);
+        }
+      });
+
+    return () => abortController.abort();
+  }, [url]);
+
+  return { data, loading, error };
+}
+```
+
+---
+

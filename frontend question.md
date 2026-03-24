@@ -429,3 +429,664 @@ This document compiles a wide range of frontend interview questions covering Jav
 ---
 
 *This document is a living compilation. Use it to prepare for frontend interviews at all levels – from junior to senior/staff.*
+
+
+## 1. Variables & Scope
+
+### Difference between `var`, `let`, and `const`
+
+| Feature | `var` | `let` | `const` |
+|---------|------|------|--------|
+| **Scope** | Function-scoped | Block-scoped `{ }` | Block-scoped `{ }` |
+| **Hoisting** | Hoisted and initialized with `undefined` | Hoisted but not initialized (TDZ) | Hoisted but not initialized (TDZ) |
+| **Re-declaration** | Allowed in same scope | Not allowed | Not allowed |
+| **Re-assignment** | Allowed | Allowed | Not allowed (for primitives; for objects, properties can be modified) |
+| **Global property** | Becomes property of `window` (in browsers) | Does not create property on `window` | Does not create property on `window` |
+
+```javascript
+// var example
+console.log(x); // undefined (hoisted)
+var x = 5;
+var x = 10; // allowed
+
+// let example
+// console.log(y); // ReferenceError: Cannot access 'y' before initialization
+let y = 20;
+// let y = 30; // SyntaxError: Identifier 'y' has already been declared
+
+// const example
+const z = 40;
+// z = 50; // TypeError: Assignment to constant variable
+const obj = { a: 1 };
+obj.a = 2; // allowed – object is not frozen
+```
+
+### What is scope? Explain global, function, and block scope.
+
+**Scope** defines where variables and functions are accessible during runtime.
+
+- **Global scope**: Variables declared outside any function or block are globally accessible. In browsers, global variables become properties of `window`.
+- **Function scope**: Variables declared with `var`, `let`, or `const` inside a function are accessible only within that function.
+- **Block scope**: Introduced with ES6; `let` and `const` are block-scoped, meaning they are confined to the nearest `{ }` (e.g., `if`, `for`, `while`). `var` ignores block scope.
+
+```javascript
+if (true) {
+  var a = 1;   // function-scoped (or global)
+  let b = 2;   // block-scoped
+  const c = 3; // block-scoped
+}
+console.log(a); // 1
+// console.log(b); // ReferenceError: b is not defined
+// console.log(c); // ReferenceError: c is not defined
+```
+
+### What is hoisting?
+
+Hoisting is JavaScript's behavior where variable and function declarations are moved to the top of their containing scope during compilation.
+
+- `var` declarations are hoisted and initialized with `undefined`.
+- `let` and `const` are hoisted but remain uninitialized (in the Temporal Dead Zone).
+- Function declarations are hoisted entirely (both name and body), so they can be called before they appear in code.
+
+```javascript
+console.log(foo); // undefined (var)
+var foo = 'bar';
+
+sayHello(); // "Hello!" – function declaration hoisted
+function sayHello() { console.log("Hello!"); }
+
+// Arrow function (assigned to var) – only variable is hoisted, not the assignment
+// sayHi(); // TypeError: sayHi is not a function
+var sayHi = () => console.log("Hi");
+```
+
+### Why do we get `ReferenceError: Cannot access 'x' before initialization`?
+
+This error occurs when trying to access a `let` or `const` variable before its declaration line is executed, because they are hoisted but not initialized. The time between entering the scope and the actual declaration is the **Temporal Dead Zone (TDZ)**.
+
+### What is the Temporal Dead Zone (TDZ)?
+
+The TDZ is the period from entering a block scope until the variable is declared with `let` or `const`. During this time, accessing the variable results in a `ReferenceError`. It prevents accidental use of variables before they are ready.
+
+```javascript
+{
+  // TDZ for a starts here
+  // console.log(a); // ReferenceError
+  let a = 10; // TDZ ends here
+}
+```
+
+### Difference between `undefined` and `not defined`
+
+- **`undefined`** is a primitive value automatically assigned to variables that have been declared but not yet assigned a value. It is a valid value.
+- **`not defined`** is a reference error thrown when trying to access a variable that was never declared in the current scope.
+
+```javascript
+let a;
+console.log(a); // undefined
+console.log(b); // ReferenceError: b is not defined
+```
+
+### Truthy and falsy values in JavaScript
+
+In JavaScript, every value is either **truthy** or **falsy** when evaluated in a boolean context (e.g., `if` condition).
+
+**Falsy values** (only 8):
+- `false`
+- `0`, `-0`, `0n` (BigInt zero)
+- `""`, `''`, ` `` ` (empty string)
+- `null`
+- `undefined`
+- `NaN`
+
+Everything else is **truthy**, including:
+- `"0"`, `"false"`, `" "` (non-empty strings)
+- `[]` (empty array)
+- `{}` (empty object)
+- `function() {}`
+- `Infinity`, `-Infinity`
+
+### Additional Questions for Variables & Scope
+
+**Q: What is the difference between `let` and `const` in terms of object mutation?**  
+A: `const` prevents reassignment of the variable, but if the variable holds an object, the object's properties can still be mutated. To freeze an object, use `Object.freeze()`.
+
+**Q: Can you declare a `let` variable in a `switch` block without curly braces?**  
+A: Yes, but each `case` shares the same block scope. Using `let` in multiple cases without a block will cause a redeclaration error. It's safer to wrap cases in `{}`.
+
+**Q: What is the difference between implicit and explicit global variables?**  
+A: Explicit globals are declared with `var` in global scope. Implicit globals occur when assigning to an undeclared variable (without `var`, `let`, `const`) – this creates a property on the global object (but is not hoisted). In strict mode, this throws an error.
+
+**Q: How does strict mode affect scoping and variable declaration?**  
+A: Strict mode (`"use strict"`) prevents accidental globals, disallows duplicate parameter names, and changes the behavior of `this` in functions (defaults to `undefined` instead of `window`).
+
+---
+
+## 2. Functions & Execution
+
+### Function declaration vs function expression
+
+| | Function Declaration | Function Expression |
+|---|----------------------|----------------------|
+| **Syntax** | `function name() {}` | `const name = function() {};` or arrow function |
+| **Hoisting** | Entire declaration hoisted (can call before definition) | Only variable declaration hoisted (not assignment) |
+| **Name** | Has a named identifier | Can be anonymous or named |
+| **Usage** | Can be used anywhere in its scope | Must be defined before invocation |
+
+```javascript
+// Function declaration – hoisted
+foo(); // "foo"
+function foo() { console.log("foo"); }
+
+// Function expression – not hoisted
+// bar(); // TypeError: bar is not a function
+const bar = function() { console.log("bar"); };
+```
+
+### Arrow functions vs regular functions – differences in `this` and syntax
+
+**Syntax differences:**
+- Arrow functions omit the `function` keyword; can have implicit return if single expression.
+- If only one parameter, parentheses can be omitted.
+
+**`this` binding:**
+- **Regular functions**: `this` is determined by how the function is called (dynamic binding). In global context, `this` refers to the global object (or `undefined` in strict mode). As a method, `this` refers to the object. As a constructor, `this` refers to the new instance.
+- **Arrow functions**: Do not have their own `this`; they capture `this` from the surrounding lexical scope at the time they are defined (lexical binding). They are not suitable for methods that need their own `this` (e.g., event handlers, object methods that need the object), but they are great for callbacks that need to preserve the outer `this`.
+
+```javascript
+const obj = {
+  name: "Alice",
+  regular: function() { console.log(this.name); },
+  arrow: () => console.log(this.name) // `this` is global (or undefined in strict mode)
+};
+obj.regular(); // "Alice"
+obj.arrow();   // undefined (or error in strict mode)
+
+// Arrow functions cannot be used as constructors (no `prototype` property)
+// new (() => {}); // TypeError
+```
+
+### What is the call stack?
+
+The **call stack** is a data structure that records function calls. When a function is invoked, a frame is pushed onto the stack. When it returns, it's popped. It helps track the execution order and current point of execution. Stack overflow occurs when too many frames are pushed (e.g., infinite recursion).
+
+### What is an execution context?
+
+An **execution context** is an abstract environment where JavaScript code is evaluated and executed. There are three types:
+- **Global execution context**: Default context, creates global object and `this`.
+- **Function execution context**: Created when a function is called; includes local variables, arguments, and `this`.
+- **Eval execution context** (rare).
+
+Each execution context has two phases:
+1. **Creation phase**: Hoisting occurs, scope chain is built, `this` is determined.
+2. **Execution phase**: Code is executed line by line.
+
+The call stack holds a stack of execution contexts.
+
+### Explain closures with a real-world example
+
+A **closure** is the combination of a function and the lexical environment within which that function was declared. The inner function retains access to variables from its outer scope even after the outer function has returned.
+
+**Real-world example: Counter factory**
+
+```javascript
+function createCounter() {
+  let count = 0;
+  return function() {
+    count++;
+    return count;
+  };
+}
+
+const counter = createCounter();
+console.log(counter()); // 1
+console.log(counter()); // 2
+// `count` is private and persists because the inner function closes over it.
+```
+
+**Use cases:** Data privacy, function factories, partial application, maintaining state in callbacks.
+
+### How does the `this` keyword behave in arrow functions, class methods, and event handlers?
+
+- **Arrow functions**: Lexical `this` (inherits from enclosing context). In an event listener, if you use an arrow function, `this` will refer to the enclosing context (e.g., the component, not the DOM element). In a class method, if defined as an arrow property, `this` is bound to the instance.
+- **Class methods**: Regular class methods have `this` bound to the instance when called as `obj.method()`. But if passed as a callback, `this` can be lost; solutions: bind, arrow method, or using `.bind` in constructor.
+- **Event handlers (DOM)**: In regular function event handlers, `this` refers to the element that received the event. In arrow functions, `this` is lexical (often the window or surrounding context). Use regular function if you need the element.
+
+### Explain `call`, `apply`, and `bind` with use cases. Implement polyfills.
+
+All three are used to control the `this` value in functions.
+
+- **`call(thisArg, arg1, arg2, ...)`**: Invokes the function immediately with a given `this` and arguments passed individually.
+- **`apply(thisArg, [argsArray])`**: Same as `call`, but arguments are passed as an array.
+- **`bind(thisArg, ...args)`**: Returns a new function with the `this` bound permanently; can be called later.
+
+**Use cases:**
+- Borrowing methods: e.g., `Array.prototype.slice.call(arguments)`
+- Function currying: `const multiply = (a,b) => a*b; const double = multiply.bind(null, 2);`
+- Event handlers: ensure `this` refers to the class instance.
+
+**Polyfills:**
+
+```javascript
+// call polyfill
+Function.prototype.myCall = function(context, ...args) {
+  context = context || globalThis;
+  const uniqueId = Symbol(); // avoid property collision
+  context[uniqueId] = this;
+  const result = context[uniqueId](...args);
+  delete context[uniqueId];
+  return result;
+};
+
+// apply polyfill
+Function.prototype.myApply = function(context, argsArray) {
+  context = context || globalThis;
+  const uniqueId = Symbol();
+  context[uniqueId] = this;
+  const result = context[uniqueId](...argsArray);
+  delete context[uniqueId];
+  return result;
+};
+
+// bind polyfill (simplified)
+Function.prototype.myBind = function(context, ...boundArgs) {
+  const fn = this;
+  return function(...args) {
+    return fn.apply(context, boundArgs.concat(args));
+  };
+};
+```
+
+### Additional Questions for Functions & Execution
+
+**Q: What is the difference between `function` and `=>` in terms of `arguments` object?**  
+A: Regular functions have an `arguments` array-like object containing passed arguments. Arrow functions do not have their own `arguments`; they inherit from the parent scope.
+
+**Q: What is a higher-order function?**  
+A: A function that takes another function as an argument or returns a function (e.g., `map`, `filter`, `reduce`).
+
+**Q: What is memoization?**  
+A: An optimization technique that caches the results of expensive function calls. Implemented using closures to store a cache object.
+
+**Q: What is the event loop? How does it work with the call stack and task queue?**  
+A: The event loop continuously checks if the call stack is empty; if so, it takes tasks from the task queue (or microtask queue) and pushes them onto the stack. Asynchronous operations (setTimeout, promises) are handled via the event loop.
+
+---
+
+## 3. Data Types & Coercion
+
+### Primitive vs reference types
+
+- **Primitive types**: `string`, `number`, `bigint`, `boolean`, `undefined`, `symbol`, `null`. Stored directly in the variable (value). Immutable. Copied by value.
+- **Reference types**: `object`, `array`, `function`, `date`, etc. Stored as reference (memory address). Mutable. Copied by reference.
+
+```javascript
+let a = 10;
+let b = a; // copy value
+b = 20;
+console.log(a); // 10
+
+let obj1 = { x: 1 };
+let obj2 = obj1; // copy reference
+obj2.x = 2;
+console.log(obj1.x); // 2
+```
+
+### Type coercion and equality: `==` vs `===`
+
+- **`==` (abstract equality)**: Performs type coercion if the operands are of different types. Tries to convert them to a common type before comparison.
+- **`===` (strict equality)**: Compares both value and type; no coercion.
+
+**Coercion rules (for `==`):**
+- If one operand is number and other is string, convert string to number.
+- If one is boolean, convert boolean to number (true→1, false→0).
+- If one is object and other is primitive, call `ToPrimitive` on object.
+- `null == undefined` is `true`; `null === undefined` is `false`.
+- `NaN` is not equal to anything (including `NaN`). Use `isNaN()` or `Number.isNaN()`.
+
+**Best practice:** Always use `===` except when intentionally checking for `null` or `undefined` with `==`.
+
+### Difference between `null` and `undefined`
+
+- **`undefined`**: A variable that has been declared but not assigned a value; also the default return of functions without `return`. Type `undefined`.
+- **`null`**: An assignment value representing "no value" or "empty". Type `object` (historical bug) but it's a primitive.
+
+```javascript
+let a; // undefined
+let b = null; // null
+typeof null; // "object"
+typeof undefined; // "undefined"
+```
+
+### How to check if a variable is an array?
+
+- `Array.isArray(arr)` – preferred, works across realms.
+- `arr instanceof Array` – may fail if array comes from another iframe.
+- `Object.prototype.toString.call(arr) === '[object Array]'` – reliable fallback.
+
+### Additional Questions for Data Types & Coercion
+
+**Q: What is `NaN` and how to check for it?**  
+A: `NaN` (Not-a-Number) is a numeric value that represents an unrepresentable number. `typeof NaN === 'number'`. Use `isNaN(value)` (coerces) or `Number.isNaN(value)` (strict, recommended) to check.
+
+**Q: What is the difference between `Object.is()` and `===`?**  
+A: `Object.is()` is similar to `===` but handles two special cases: `Object.is(NaN, NaN)` is `true` and `Object.is(-0, +0)` is `false`. `===` does the opposite.
+
+**Q: How does JavaScript handle implicit coercion in arithmetic?**  
+A: The `+` operator prefers string concatenation if either operand is a string; other arithmetic operators (`-`, `*`, `/`) coerce to numbers. Example: `'5' + 3` → `'53'`, `'5' - 3` → `2`.
+
+**Q: What are symbols used for?**  
+A: Symbols are unique and immutable primitives used as object property keys to avoid name collisions. They are not enumerable in `for...in` loops, but can be accessed via `Object.getOwnPropertySymbols()`.
+
+---
+
+## 4. Objects & Prototypes
+
+### How does prototypal inheritance work?
+
+Every JavaScript object has an internal `[[Prototype]]` (accessible via `__proto__` or `Object.getPrototypeOf()`). When accessing a property, JavaScript first looks on the object itself; if not found, it follows the prototype chain until it reaches `null`. This is the basis of inheritance.
+
+```javascript
+const parent = { a: 1 };
+const child = Object.create(parent);
+child.b = 2;
+console.log(child.a); // 1 (from parent)
+console.log(child.b); // 2
+console.log(child.toString); // from Object.prototype
+```
+
+### Prototype chain vs class inheritance
+
+- **Prototype chain**: JavaScript's native inheritance mechanism based on linking objects. You can create objects that inherit from other objects directly (using `Object.create`).
+- **Class inheritance** (ES6): Syntactic sugar over prototypal inheritance. It provides a familiar class syntax (`class`, `extends`, `super`) but still uses prototypes under the hood.
+
+```javascript
+// Prototype chain
+function Animal(name) { this.name = name; }
+Animal.prototype.speak = function() { console.log(`${this.name} makes noise.`); };
+
+function Dog(name) { Animal.call(this, name); }
+Dog.prototype = Object.create(Animal.prototype);
+Dog.prototype.constructor = Dog;
+Dog.prototype.speak = function() { console.log(`${this.name} barks.`); };
+
+// ES6 Classes
+class Animal {
+  constructor(name) { this.name = name; }
+  speak() { console.log(`${this.name} makes noise.`); }
+}
+class Dog extends Animal {
+  speak() { console.log(`${this.name} barks.`); }
+}
+```
+
+### `Object.create()` and ES6 classes
+
+- **`Object.create(proto, propertiesObject)`**: Creates a new object with the specified prototype object. Useful for simple inheritance without constructors.
+- **ES6 classes**: Provide a more declarative way to define constructors and methods. They also support static methods, private fields (with `#`), and mixins.
+
+### Shallow copy vs deep copy – how to achieve each? Modern solution: `structuredClone()`
+
+- **Shallow copy**: Copies only the top-level properties. Nested objects are still referenced.
+  - Methods: spread operator `{...obj}`, `Object.assign({}, obj)`, `Array.slice()`, `[...arr]`.
+- **Deep copy**: Recursively copies all nested structures, resulting in a fully independent copy.
+  - Traditional: `JSON.parse(JSON.stringify(obj))` – limited (fails with functions, undefined, symbols, circular references).
+  - Modern: `structuredClone(obj)` – built-in (available in browsers and Node 17+), handles most types (including Dates, Maps, Sets, arrays, objects, but not functions, DOM elements, etc.).
+  - Libraries: Lodash `_.cloneDeep()`.
+
+```javascript
+const original = { a: 1, b: { c: 2 } };
+const shallow = { ...original };
+shallow.b.c = 3;
+console.log(original.b.c); // 3 (changed)
+
+const deep = structuredClone(original);
+deep.b.c = 4;
+console.log(original.b.c); // 3 (unchanged)
+```
+
+### Additional Questions for Objects & Prototypes
+
+**Q: How do you check if a property exists in an object?**  
+A: 
+- `'prop' in obj` – checks own and inherited properties.
+- `obj.hasOwnProperty('prop')` – checks own properties only.
+- `Object.hasOwn(obj, 'prop')` – modern alternative.
+
+**Q: What is the difference between `Object.keys()`, `Object.values()`, `Object.entries()`?**  
+A: They return arrays of own enumerable property keys, values, and key-value pairs, respectively.
+
+**Q: What is property descriptor?**  
+A: An object that describes attributes of a property: `value`, `writable`, `enumerable`, `configurable`. Can be retrieved with `Object.getOwnPropertyDescriptor(obj, prop)`.
+
+**Q: How to create a truly immutable object?**  
+A: 
+- `Object.freeze(obj)` – prevents adding/removing properties and makes all existing properties non-writable (shallow).
+- For deep freeze, recursively freeze.
+- Using `const` only prevents reassignment, not mutation.
+
+---
+
+## 5. Arrays & Iteration
+
+### Difference between `map`, `filter`, and `forEach`
+
+| Method | Return | Purpose |
+|--------|--------|---------|
+| `map` | New array of same length | Transform each element |
+| `filter` | New array of filtered elements | Select elements based on condition |
+| `forEach` | `undefined` | Execute side effects (e.g., logging, updating external variables) |
+
+```javascript
+const arr = [1, 2, 3];
+const doubled = arr.map(x => x * 2); // [2,4,6]
+const evens = arr.filter(x => x % 2 === 0); // [2]
+arr.forEach(x => console.log(x)); // logs 1,2,3
+```
+
+### `map` vs `forEach` – when to use which?
+
+- Use `map` when you need to transform an array into another array of the same length.
+- Use `forEach` when you just need to iterate and perform side effects (like updating UI, printing, or accumulating with external variable). `forEach` does not return a value.
+
+### `slice` vs `splice`
+
+| Method | Returns | Mutates original? | Purpose |
+|--------|---------|------------------|---------|
+| `slice(start, end)` | New array (shallow copy) | No | Extract a portion without modifying |
+| `splice(start, deleteCount, ...items)` | Array of removed elements | Yes | Remove/replace/add elements at any position |
+
+```javascript
+const arr = [1, 2, 3, 4];
+const sliceRes = arr.slice(1, 3); // [2,3]
+console.log(arr); // [1,2,3,4]
+
+const spliceRes = arr.splice(1, 2, 'a', 'b'); // [2,3] removed
+console.log(arr); // [1,'a','b',4]
+```
+
+### `find`, `some`, `every` – use cases
+
+- **`find(callback)`**: Returns the first element that satisfies the condition; else `undefined`. Use when you need the element itself.
+- **`some(callback)`**: Returns `true` if at least one element satisfies the condition; else `false`. Use to check existence.
+- **`every(callback)`**: Returns `true` if all elements satisfy the condition; else `false`. Use to validate all.
+
+```javascript
+const users = [{ id: 1, active: true }, { id: 2, active: false }];
+const user = users.find(u => u.id === 2); // { id:2, active:false }
+const hasActive = users.some(u => u.active); // true
+const allActive = users.every(u => u.active); // false
+```
+
+### Sorting arrays with custom comparators
+
+`sort()` without a comparator converts elements to strings and sorts lexicographically. Provide a comparator function that returns negative, zero, or positive.
+
+```javascript
+const numbers = [3, 1, 10, 2];
+numbers.sort((a, b) => a - b); // ascending [1,2,3,10]
+numbers.sort((a, b) => b - a); // descending
+
+const objects = [{ name: 'John', age: 30 }, { name: 'Jane', age: 25 }];
+objects.sort((a, b) => a.age - b.age); // sort by age
+```
+
+### Additional Questions for Arrays & Iteration
+
+**Q: How do you flatten an array?**  
+A: `flat()` (ES2019): `[1,[2,3]].flat()` → `[1,2,3]`. For deeper, pass depth or `Infinity`. Polyfill via `reduce` and recursion.
+
+**Q: What is the difference between `reduce` and `reduceRight`?**  
+A: Both accumulate values; `reduce` goes left-to-right, `reduceRight` goes right-to-left.
+
+**Q: How to remove duplicates from an array?**  
+A: Using `Set`: `[...new Set(array)]`. For objects, use `Map` with a unique key.
+
+**Q: How to convert an array-like object to an array?**  
+A: `Array.from(arrayLike)`, `[...arrayLike]`, or `Array.prototype.slice.call(arrayLike)`.
+
+**Q: What are the performance implications of `map`, `filter`, `reduce` chains?**  
+A: Each method creates a new array and loops through the entire array. For large arrays, consider using a single `reduce` to avoid multiple passes.
+
+---
+
+## 6. ES6+ Features
+
+### Destructuring (objects and arrays)
+
+Allows extracting values from arrays or properties from objects into distinct variables.
+
+```javascript
+// Array destructuring
+const [first, second] = [1, 2];
+const [a, , c] = [1, 2, 3]; // a=1, c=3
+const [x, ...rest] = [1, 2, 3]; // x=1, rest=[2,3]
+
+// Object destructuring
+const { name, age } = { name: 'John', age: 30 };
+const { name: personName, city = 'Unknown' } = obj; // alias and default
+const { ...other } = obj; // rest properties
+```
+
+### Spread and rest operators
+
+- **Spread (`...`)**: Expands elements (array, object) into individual items.
+- **Rest (`...`)**: Collects remaining elements into an array or object.
+
+```javascript
+// Spread
+const arr = [1, 2];
+const newArr = [...arr, 3]; // [1,2,3]
+const obj = { a: 1, b: 2 };
+const newObj = { ...obj, c: 3 }; // { a:1, b:2, c:3 }
+
+// Rest
+function sum(...numbers) { return numbers.reduce((acc, n) => acc + n, 0); }
+const [head, ...tail] = [1, 2, 3]; // head=1, tail=[2,3]
+```
+
+### Template literals
+
+Strings using backticks `` ` `` that support:
+- Multi-line strings
+- Interpolation `${expression}`
+
+```javascript
+const name = 'Alice';
+const greeting = `Hello, ${name}!
+Welcome to JavaScript.`;
+```
+
+### Modules (`import`/`export`)
+
+ES6 modules allow splitting code into separate files. Use `export` to expose functions/variables, and `import` to consume them.
+
+```javascript
+// math.js
+export const add = (a, b) => a + b;
+export default function multiply(a, b) { return a * b; }
+
+// app.js
+import multiply, { add } from './math.js';
+```
+
+### Optional chaining (`?.`) and nullish coalescing (`??`)
+
+- **Optional chaining**: Safely access nested properties without worrying about `null` or `undefined`. Short-circuits to `undefined` if any part is nullish.
+- **Nullish coalescing**: Returns the right-hand side only when the left is `null` or `undefined` (not for falsy values like `0` or `''`).
+
+```javascript
+const user = { profile: { name: 'John' } };
+console.log(user.profile?.age); // undefined (no error)
+console.log(user.address?.city); // undefined
+
+const value = 0;
+const result = value ?? 'default'; // 0 (since 0 is not null/undefined)
+const result2 = value || 'default'; // 'default' (since 0 is falsy)
+```
+
+### `WeakMap` vs `Map` – real use cases
+
+- **`Map`**: Keys can be any type; holds strong references to keys. Keys are iterable and the map can be cleared. Use for general key-value storage.
+- **`WeakMap`**: Keys must be objects; holds weak references to keys, so if there's no other reference, the key can be garbage collected. Not iterable, no `size` property. Use cases:
+  - Storing private data for objects without memory leaks.
+  - Caching where you don't want to prevent garbage collection.
+  - Storing metadata for DOM elements.
+
+```javascript
+// WeakMap example: private data
+const privateData = new WeakMap();
+class Person {
+  constructor(name) {
+    privateData.set(this, { name });
+  }
+  getName() {
+    return privateData.get(this).name;
+  }
+}
+```
+
+### Symbols and iterators
+
+- **Symbols**: Unique identifiers. Often used to define well-known symbols like `Symbol.iterator` to make objects iterable.
+- **Iterators**: Objects with a `next()` method returning `{ value, done }`. Iterable objects have a `[Symbol.iterator]` method.
+
+```javascript
+// Making an object iterable
+const range = {
+  start: 1,
+  end: 5,
+  [Symbol.iterator]() {
+    let current = this.start;
+    const end = this.end;
+    return {
+      next() {
+        if (current <= end) return { value: current++, done: false };
+        else return { done: true };
+      }
+    };
+  }
+};
+for (let num of range) console.log(num); // 1 2 3 4 5
+```
+
+### Additional Questions for ES6+ Features
+
+**Q: What is the difference between `for...in` and `for...of`?**  
+A: `for...in` iterates over enumerable property keys (including prototype chain). `for...of` iterates over iterable values (arrays, strings, maps, sets) – it's the recommended way for arrays.
+
+**Q: What are generators?**  
+A: Functions that can be paused and resumed, defined with `function*`. They return an iterator that yields values via `yield`. Useful for lazy evaluation, infinite sequences, and async flows.
+
+**Q: What is the difference between `Promise` and `async/await`?**  
+A: Promises are objects representing eventual completion; `async/await` is syntactic sugar over promises, making asynchronous code look synchronous. `await` can only be used inside `async` functions.
+
+**Q: What are private fields in classes?**  
+A: Using `#` prefix (e.g., `#privateField`). They are truly private, cannot be accessed outside the class, and are not enumerable.
+
+**Q: What is the `Array.prototype.at()` method?**  
+A: `at(index)` allows negative indexing to access elements from the end: `arr.at(-1)` returns last element, equivalent to `arr[arr.length-1]`.
+
+---
+
+This comprehensive guide covers all requested topics and adds extra questions frequently asked in interviews. Practice with code examples and consider building small projects to solidify these concepts.

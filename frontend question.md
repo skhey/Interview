@@ -4787,3 +4787,269 @@ In **Performance** tab:
 - **Lighthouse CI** – run Lighthouse in GitHub Actions to catch regressions before deployment.  
 
 **Workflow**: Use local DevTools during development, Lighthouse CI on every PR, and RUM in production to monitor real user experience.
+
+
+Below are the questions with detailed, practical answers covering Node.js, React, and Redux. These reflect real‑world debugging and optimization approaches used in production.
+
+---
+
+## 🔹 Node.js
+
+### 1. In a live application where users report slowness, how would you identify whether the issue is due to the event loop blocking or inefficient code?
+
+**Answer:**  
+I would use a combination of monitoring, profiling, and diagnostic tools.
+
+- **Monitor event loop lag:** Use the `perf_hooks` module or libraries like `event-loop-lag` to measure the delay between a scheduled task and its execution. High lag (>10‑20ms) indicates blocking.
+- **Profiling:** Take CPU profiles using `node --inspect` and Chrome DevTools, or use `clinic` (Clinic.js) to visualise hotspots. A flat flame graph with long‑running synchronous functions points to blocking code.
+- **Check for synchronous I/O:** Look for `fs.readFileSync`, heavy crypto, or JSON parsing of large objects in the main thread.
+- **Use `process._getActiveHandles()` and `process._getActiveRequests()`** to see if too many pending operations are accumulating.
+- **APM tools:** New Relic, Datadog, or Dynatrace can show event loop latency and transaction traces.
+- **Inefficient code:** If the event loop is not blocked but operations are slow (e.g., slow database queries, N+1 problems), profiling will show time spent in callbacks or promises rather than a single synchronous block. In that case, the fix is optimising the async operations, not removing blocking code.
+
+---
+
+### 2. You have a feature using closures, but it's causing unexpected behavior in production — how would you debug and fix it?
+
+**Answer:**  
+Closure issues often stem from variable capture inside loops, asynchronous callbacks, or stale state.
+
+- **Reproduce locally:** Write a test that mimics production behavior. Use `console.log` or a debugger to inspect captured variables.
+- **Check loop closures:** If the feature uses `var` inside a loop, the closure shares the same variable reference. Replace with `let` (block‑scoped) or use an IIFE to capture the current value.
+- **Asynchronous closures:** When a callback accesses a variable that changes after the closure is created, the value may be outdated. Example:  
+  ```javascript
+  for (let i = 0; i < 3; i++) {
+    setTimeout(() => console.log(i), 100); // works with let
+  }
+  ```
+  With `var`, all would log `3`. The fix is to use `let` or wrap in a function.
+- **State in React hooks (if applicable):** Stale closures often appear with `useEffect` or `useCallback` when dependencies are missing. Use exhaustive‑deps rules and verify captured values.
+- **Production debugging:** Add structured logging that includes the closure‑bound values at key points. Use remote debugging via `--inspect` if possible, or log snapshots.
+- **Fix:** Once identified, refactor to avoid mutating captured variables or use explicit dependencies (e.g., `useCallback` with proper deps). Consider replacing closures with explicit parameters where appropriate.
+
+---
+
+### 3. A page is consuming too much memory over time — how would you detect and prevent memory leaks?
+
+**Answer:**  
+Memory leaks in Node.js usually come from global caches, event listeners not removed, or lingering references.
+
+- **Detection:**
+  - Monitor heap size using `process.memoryUsage()` and look for steady growth.
+  - Take heap snapshots (Chrome DevTools or `node --inspect`) and compare before/after operations to find objects that should have been garbage collected but persist.
+  - Use `--trace-gc` to see GC activity; if GC runs frequently but heap grows, there’s a leak.
+- **Common culprits:**
+  - **Event listeners:** Forgetting `removeListener` on `EventEmitter` or `process.on`. Use tools like `why-is-node-running` to see pending listeners.
+  - **Caches:** Unbounded caches (e.g., `Map` or object) that never expire. Implement TTL or size limits (use `lru-cache`).
+  - **Closures:** Accidentally retaining large objects in closure scopes referenced by long‑living callbacks.
+  - **Global variables:** Attaching large data to `global` or `module.exports` unintentionally.
+- **Prevention:**
+  - Use weak references (`WeakMap`, `WeakSet`) for caching when appropriate.
+  - Always remove listeners in cleanup functions (e.g., `on('data', handler)` paired with `off('data', handler)`).
+  - For HTTP servers, ensure responses are ended and streams are destroyed.
+  - Use tools like `memwatch-next` or `node-memwatch` to detect leaks in tests.
+
+---
+
+### 4. How would you handle multiple API calls efficiently without blocking the UI?
+
+**Answer:**  
+In a Node.js backend, “blocking the UI” usually refers to blocking the event loop. For frontend, it’s about keeping the UI responsive. I’ll cover both.
+
+**Backend (Node.js):**
+- Use `Promise.all` or `Promise.allSettled` to run independent API calls in parallel.
+- Avoid sequential `await` calls unless there is a dependency.
+- Offload CPU‑intensive tasks to worker threads (`worker_threads`) or a separate service so the main event loop remains free.
+- Use streaming and back‑pressure when dealing with large payloads to avoid memory pressure.
+
+**Frontend (Browser):**
+- Use `Promise.all` for parallel requests, but be mindful of browser connection limits (usually 6 per origin). Group requests accordingly.
+- Implement request caching (e.g., with React Query or SWR) to avoid duplicate calls.
+- Show skeleton loaders or optimistic UI so the user perceives responsiveness.
+- If calls are heavy, use Web Workers to process data without blocking the main thread.
+- Debounce or throttle user‑triggered API calls (e.g., search inputs) to reduce unnecessary requests.
+
+---
+
+## 🔹 React JS
+
+### 1. In a large-scale application, components are re-rendering unnecessarily — how would you identify and fix performance issues?
+
+**Answer:**  
+**Identification:**
+- Use React DevTools Profiler to record interactions and see which components re‑rendered and why.
+- Enable “Highlight updates” in DevTools to visually see re‑renders.
+- Add `console.log` or `why‑did‑you-render` library to log unnecessary updates.
+- Check for common anti‑patterns: passing new object/array literals as props, inline functions in render, or missing keys in lists.
+
+**Fixing:**
+- **Memoisation:** Wrap components with `React.memo` if they receive the same props frequently. Use `useMemo` for expensive computations and `useCallback` for functions passed to memoized children.
+- **State localisation:** Move state down to the component that actually needs it, or use context selectively.
+- **Avoid spreading props** that contain large objects unless necessary.
+- **Stable references:** Ensure that objects/arrays passed as props are created only when their contents change (e.g., `useMemo(() => ({...}), [deps])`).
+- **Code splitting:** Use `React.lazy` and Suspense to reduce initial render cost.
+
+---
+
+### 2. You are building a real-time dashboard — how would you manage frequent state updates without affecting performance?
+
+**Answer:**  
+Frequent state updates (e.g., WebSocket streams) can cause excessive re‑renders.
+
+- **Throttle / debounce:** If the data arrives faster than the UI needs to update, use `throttle` (e.g., Lodash) to limit render frequency. For charts, consider down‑sampling.
+- **Selective subscriptions:** Instead of storing all data in a single global state, use component‑specific subscriptions. Libraries like `zustand` or `valtio` allow granular updates.
+- **Use `useReducer` or `useRef` for non‑render state:** If a value changes but shouldn’t trigger a render, store it in a ref.
+- **Virtualisation:** For tables or lists that update frequently, use `react‑window` to render only visible rows.
+- **Web Workers:** Offload data processing (aggregation, filtering) to a worker so the main thread only handles rendering.
+- **Batched updates:** In React 18, automatic batching groups state updates from different sources. Ensure you’re using concurrent features if needed.
+- **Immutability:** Always update state immutably; libraries like Immer help maintain predictable updates.
+
+---
+
+### 3. How would you design component structure for scalability in a production-level app?
+
+**Answer:**  
+Scalable structure follows separation of concerns, reusability, and clear boundaries.
+
+- **Folder by feature/module** (not by file type). Example:
+  ```
+  src/
+    features/
+      dashboard/
+        components/
+        hooks/
+        api/
+        types/
+      profile/
+        ...
+    shared/
+      ui/          # reusable presentational components
+      lib/         # utilities
+      hooks/       # shared hooks
+    app/           # routing, global providers
+  ```
+- **Component design:**
+  - **Presentational components:** Receive data via props, no business logic. Easy to test and reuse.
+  - **Container components / hooks:** Encapsulate logic, data fetching, and state. Use custom hooks to share logic across components.
+- **State management:** Use local state first, lift when needed. Use context for themes/user, but avoid overusing it for high‑frequency updates.
+- **Code splitting:** Use `React.lazy` for routes and large components.
+- **Type safety:** TypeScript with strict mode catches many errors early.
+- **Consistent naming and patterns:** Document and enforce (e.g., feature components export default, shared components named exports).
+
+---
+
+### 4. A user complains about slow UI after data load — how would you optimize rendering and improve UX?
+
+**Answer:**  
+Slow UI after data load typically means the initial render is expensive or the data processing blocks the main thread.
+
+- **Profile the render:** Use React DevTools Profiler to identify which component is expensive. Look for large lists, complex calculations, or deeply nested component trees.
+- **Defer heavy work:**
+  - Move expensive computations to a Web Worker.
+  - Use `useDeferredValue` or `startTransition` to mark non‑urgent updates (React 18) so the UI stays responsive.
+  - Split the data into chunks and render progressively (e.g., pagination or infinite scroll).
+- **Virtualise large lists:** With `react‑window` or `react‑virtualized`, only render visible items.
+- **Optimise images and media:** Lazy load images, use proper formats, and serve scaled images.
+- **Improve perceived performance:** Show skeleton screens or placeholder loaders immediately, then fill in data as it arrives. This reduces perceived lag.
+- **Memoise derived data:** Use `useMemo` to avoid recalculating expensive derived state on every render.
+- **Avoid layout thrashing:** Batch DOM reads/writes. In React, this is less common but can happen with third‑party libraries.
+
+---
+
+## 🔹 Redux
+
+### 1. In a complex application, state is becoming hard to manage — how would you restructure your Redux store?
+
+**Answer:**  
+Hard‑to‑manage state often results from a flat, overly nested, or “everything in one slice” structure.
+
+- **Normalise the state:** Use a structure like `{ entities: { users: { byId: {}, allIds: [] } }, ui: {}, ... }`. This avoids deep nesting and simplifies updates. Libraries like `normalizr` help.
+- **Split by domain / feature:** Combine related reducers with `combineReducers`. Each feature owns its slice of state and its own actions/reducers.
+- **Use Redux Toolkit (RTK):** It enforces best practices: `createSlice` bundles reducers and actions, `createEntityAdapter` provides pre‑built normalisation logic.
+- **Move derived data out of the store:** Use selectors (with `createSelector` from Reselect) to compute derived data on demand, preventing redundant storage.
+- **Avoid deeply nested state:** If you have `state.a.b.c.d`, refactor so each slice is flatter. Consider if the nesting is necessary; often UI state can be local.
+- **Separate UI state from domain state:** UI state (modal open, loading) can often be kept in local component state unless needed globally.
+
+---
+
+### 2. How would you handle multiple dependent API calls using Redux Thunk or Saga in a real-world scenario?
+
+**Answer:**  
+**With Redux Thunk:**
+- For sequential dependencies: `async`/`await` inside a thunk.
+  ```javascript
+  export const fetchUserAndPosts = (userId) => async (dispatch) => {
+    dispatch(fetchUserRequest());
+    const user = await api.getUser(userId);
+    dispatch(fetchUserSuccess(user));
+    const posts = await api.getPosts(userId);
+    dispatch(fetchPostsSuccess(posts));
+  };
+  ```
+- For parallel calls that both must complete before next step: `Promise.all`.
+- Use `dispatch` to trigger other thunks; thunks can wait for each other.
+
+**With Redux Saga:**
+- Sagas excel at complex flows. Use `takeEvery` or `takeLatest` with `call`, `put`, `select`, and `all`.
+  ```javascript
+  function* fetchUserAndPosts(action) {
+    try {
+      const user = yield call(api.getUser, action.payload.userId);
+      yield put(fetchUserSuccess(user));
+      const posts = yield call(api.getPosts, action.payload.userId);
+      yield put(fetchPostsSuccess(posts));
+    } catch (err) {
+      yield put(fetchError(err));
+    }
+  }
+  ```
+- For parallel dependencies: `const [user, posts] = yield all([call(api.getUser), call(api.getPosts)])` if they can run simultaneously.
+- Sagas also provide cancellation, debouncing, and race conditions, which are valuable in real‑world scenarios.
+
+**Real‑world considerations:**
+- Handle loading/error states for each independent call.
+- Use selectors to avoid redundant calls when data already exists.
+- Cache responses where appropriate.
+- For complex orchestration, Saga is often more maintainable than nested thunks.
+
+---
+
+### 3. If Redux is causing too many re-renders, how would you optimize it?
+
+**Answer:**  
+Too many re‑renders usually mean components are subscribed to more state than they need, or selectors are not memoised.
+
+- **Use memoised selectors:** `createSelector` from Reselect ensures that a component only re‑renders when the specific slice of state it uses changes.
+- **Connect only what is needed:** When using `useSelector`, subscribe to individual pieces of state, not the whole state object.
+  ```javascript
+  // Bad: re‑renders on any state change
+  const state = useSelector(state => state);
+  
+  // Good: re‑renders only when user.name changes
+  const name = useSelector(state => state.user.name);
+  ```
+- **Shallow equality checks:** `useSelector` uses strict `===` by default; if returning a new object/array each time, it triggers re‑renders. Return primitives or use `shallowEqual` as a second argument.
+- **Use `React.memo` on components** that receive props from Redux to prevent parent re‑renders from cascading.
+- **Avoid dispatching actions that update large slices unnecessarily.** Split actions to target only what changed.
+- **Consider using Redux Toolkit’s `createEntityAdapter`** which provides memoised selectors out of the box.
+- **Profile with React DevTools** to confirm which components are re‑rendering and why.
+
+---
+
+### 4. When would you decide NOT to use Redux and choose a simpler solution?
+
+**Answer:**  
+Redux adds complexity. I would choose a simpler alternative when:
+
+- **The app is small or has limited state:** If state is mostly local, React’s `useState`/`useReducer` + context is sufficient.
+- **State updates are simple and infrequent:** For example, a form‑driven app with little cross‑component communication.
+- **The team is unfamiliar with Redux patterns:** Introducing it would slow development.
+- **Real‑time / high‑frequency updates:** Redux’s immutable updates can become a bottleneck. For real‑time apps, consider Zustand, Valtio, or MobX.
+- **We already use React Query / SWR:** If data fetching is the main state concern, these libraries handle caching and sync, and local UI state can stay in component state.
+- **The app will stay relatively static** and doesn’t need advanced features like time travel or extensive middleware.
+
+**Alternatives:** React Context (for low‑frequency data), Zustand (simple global store), Jotai/Recoil (atomic state), or even plain module singletons for truly simple cases.
+
+---
+
+Let me know if you need deeper elaboration on any of these topics.
